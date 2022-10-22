@@ -1,0 +1,256 @@
+---
+title: "EXAMEN"
+author: "José Eduardo Téllez"
+date: "26/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+## Análisis de Datos
+
+
+Haciendo un análisis de la serie apartir de 1948 hasta 2020 Marzo. A primera vista se observa un crecimeinto en el año 2008 causado por la crisis del 2008, por lo que se observa un crecimiento en la tasa de desempleo. Crisis que se apartir del 2010 comienza su descenso. De igual manera se observa un 
+
+
+```{r , echo=FALSE, include= T, warning=FALSE,  message=FALSE}
+library(readxl)
+library(dplyr)
+library(plotly)
+
+data <- readxl::read_xlsx("desempleo usa.xlsx")
+attach(data)
+glimpse(data)
+
+data %>% plot_ly(x=~time, y=~UnemRate) %>%
+  add_lines()
+
+
+#Desem <- data %>% select(UnemRate) %>%  filter(as.Date("2"))
+
+
+
+```
+
+
+
+```{r pressure, echo=FALSE, include= F, warning=FALSE}
+ts_des <- ts(data$UnemRate, frequency=12,start=c(1948,1),end = c(2020,3))
+
+plot(ts_des)
+
+
+
+
+```
+
+
+
+## Descomposición de la serie
+
+
+Descomponemos la serie para observar su componentes: tendencia ,estacionalidad y los residuales
+
+```{r, echo=FALSE, include= T, warning=FALSE}
+plot(decompose(ts_des, "additive"))
+
+
+
+
+
+```
+
+
+
+# Transformación
+
+
+Se observa que la varianza es homogendea por l oque le aplicamos una trnadofrmación. Ocupando el metodo de guerrero obtenemos una Lambda de .99.
+
+ 
+```{r, echo=FALSE, include= T, warning=FALSE}
+library('fpp2')
+library('forecast')
+library('fma')
+library('ggplot2')
+
+
+lambda <- BoxCox.lambda(ts_des, method = c("guerrero"), lower = -1, upper = 2)
+ts_des_trans <- BoxCox(ts_des,lambda)
+
+
+
+```
+
+
+```{r, echo=FALSE, include= T, warning=FALSE}
+plot(ts_des_trans,yaxt='n' ,xlab="", ylab="",lty  = "dashed",col="blue")
+```
+
+
+
+## ACF y PACF
+
+
+Gráficando las ACF Y PACF se observa que necesitamos  una diferencia, ya que se presenta una persistencia muy alta.
+
+
+```{r, echo=FALSE, include= T, warning=FALSE}
+
+par(mfrow= c(2,1))
+acf(ts_des_trans)
+pacf(ts_des_trans)
+
+
+
+
+
+
+```
+
+
+APlicando uan diferencia
+
+```{r, echo=FALSE, include= T, warning=FALSE}
+ts_des <- diff(ts_des_trans)
+par(mfrow= c(2,1))
+acf(ts_des)
+pacf(ts_des)
+
+
+```
+
+
+
+Se observa un componente estacional a cada doce periodos lo que nos indica que podria ser un Sarima(1,1,1)(1,0,0)12. Ahora, cada tercer rezago se observa un incremento, continuado de un descenso, por lo que en la parte de estacionariedad propondriamos un modelo ARIMA(3,1,2) o (3,1,0)
+De esta manera proponemos dos modelos: SARIMA(3,1,2)X(1,0,0)12 Y SARIMA(3,1,0)X(1,0,0)12 
+
+ 
+
+
+
+## Ajuste del Modelo
+
+Estimamos dos modelos SARIMA:
+
+El primero SARIMA(3,1,2)X(1,0,0)12
+
+```{r, echo=FALSE, include= T, warning=FALSE, message=F}
+library(astsa)
+
+mod1 <- arima(x = ts_des, order = c(3, 1, 2), seasonal = list(order = c(1, 0, 0), period = 12))
+#mod1<-sarima(ts_des, 3,1,2, 1,0,0,12)
+
+summary(mod1)
+
+
+
+```
+
+data %>% 
+mutate(ENDOSOPOL = case_when(
+    is.na(ENDOSOPOL)& poliza == "1"~ aqui va el valor, 
+    is.na(ENDOSOPOL)& poliza == "2"~ aqui va el valor,
+    is.na(ENDOSOPOL)& poliza == "3"~ aqui va el valor,
+    is.na(ENDOSOPOL)& poliza == "4"~ aqui va el valor,
+    is.na(ENDOSOPOL)& poliza == "5"~ aqui va el valor,
+    T ~ ENDOSOPOL
+) 
+
+
+
+El segundo modelo observado:
+SARIMA(3,1,0)X(1,0,0)12 
+
+```{r}
+
+mod2 <- arima(x = ts_des, order = c(3, 1, 0), seasonal = list(order = c(1, 0, 0), period = 12))
+summary(mod2)
+
+```
+
+
+
+
+
+ estos dos modelos el que tiene el menor grado de AIC es el primero.
+
+
+# Evaluación de Pronosticos
+
+Observando la prueba Diebold-Mariano se observa que el p-value de de la última prueba es mayor a cero por lo qe se rechaza la hipotesis nula, donde el estadistico de prueba es diferente de cero. Por lo que se acepta la hipotesis alternativa de que el mod1 es 
+
+
+```{r}
+library(forecast)
+dm.test(residuals(mod1),residuals(mod2),alternative = c("two.sided"),h=1)
+
+dm.test(residuals(mod1),residuals(mod2),alternative = c("less"),h=1)
+
+dm.test(residuals(mod1),residuals(mod2),alternative = c("greater"),h=1)
+```
+
+## Pronosticos
+
+Graficaremos los Pronosticos para observar de los deos modelos
+
+```{r}
+mod1_res<- sarima.for(ts_des, 7,3,1,2, 1,0,0,12)
+
+```
+
+```{r}
+mod1_res<- sarima.for(ts_des, 7,3,1,0, 1,0,0,12)
+
+```
+
+
+# DIcky fuller
+
+Se observa que -22.59 esta en el area de Rechazo por lo que suponemos que no existe Raíz unitaria. Observando el estadistico tt se observa que no es significativo de cero. por lo que hacemos lel modelo sin tendecia lineal.
+
+
+
+```{r, echo=T, include= T, warning=FALSE}
+
+library("urca")
+ad.mod1 <- ur.df(ts_des, type="trend", selectlags="AIC")
+summary(ad.mod1)
+
+
+#dm.test(residuals(mod1),residuals(mod2),alternative = c("two.sided"),h=7)
+```
+
+Se observa el mismo comportamiento, por lo que volvemos a rechazar que exista la raiz unitaria, y de igual manera 255.43 esta del lado derecho por lo que no es un modelo con deriva.
+
+
+```{r, echo=T, include= T, warning=FALSE}
+ad.mod1 <- ur.df(ts_des, type="drift", selectlags="AIC")
+summary(ad.mod1)
+
+
+#dm.test(residuals(mod1),residuals(mod2),alternative = c("two.sided"),h=7)
+```
+
+
+Por último se rechaza con sea un DF sin constante con raíz unitaria, por lo que tenemos un modelo estacionario alrededor de cero
+
+```{r, echo=T, include= T, warning=FALSE}
+ad.mod1 <- ur.df(ts_des, type="none", selectlags="AIC")
+summary(ad.mod1)
+
+
+#dm.test(residuals(mod1),residuals(mod2),alternative = c("two.sided"),h=7)
+```
+
+## Pregunta
+
+
+Mi modelo se veria muy afectado ante los cambios por el Covid, dado que este comportamiento es nuevo y es algo no predecible. Por lo que mis pronosticos serian incorrectos. Una opción seria tomar pronosticos por Rolling Windows para de esta manera incluir la información de estos últimos meses.
+
+
+

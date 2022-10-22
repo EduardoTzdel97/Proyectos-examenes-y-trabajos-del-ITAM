@@ -1,0 +1,2656 @@
+---
+title: "Proyecto Aplicada"
+author: "Carlos Retana, Eduardo Merchant, José Téllez"
+date: "18/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r librerias, echo=FALSE, include=FALSE}
+library(KFAS)
+library(tidyverse)
+library(ggcorrplot)
+library(dplyr)
+library(tidyverse)
+library(plotly)
+library(ggplot2)
+library(ggfortify)
+library(reshape2)
+library(GGally)
+library(gridExtra)
+library(unikn) 
+library(PerformanceAnalytics)
+library(plotly)
+library(lubridate)
+library(MASS)
+library(psych)
+library(MLmetrics)
+library(DT)
+library(magrittr)
+#library(forecast)
+  source('helpers.R')
+library(R2jags)
+library(magrittr)
+#library(forecast)
+  source('helpers.R')
+library(DT)
+
+
+```
+
+```{r CargarDatos, echo=FALSE, include=FALSE}
+data <- read.csv("femcare.csv")
+attach(data)
+data <- data %>% mutate_if(is.numeric, .funs = function(x){log(x)})
+data[sapply(data, is.infinite)] <- NA
+names(data)[1]<- "fecha"
+data$fecha <- dmy(data$fecha)
+data <- data %>% mutate(Mes=month(fecha))
+
+test_data <- data %>% filter(fecha >= as.Date("2019-11-01"))
+train_data <- data %>% filter(fecha < as.Date("2019-11-01"))  
+
+variables_a <- c("share_A","dist_num_A", "agot_num_A", "ventas_unidades_A",
+                 "ppu_A","inventarios_A", "inversion_promos_A",
+                 "inversion_promos_tv_A")
+variables_b <- c("share_A","dist_num_B", "agot_num_B", "ventas_unidades_B",
+                 "ppu_B","inventarios_B", "share_B")
+
+
+```
+
+
+
+
+# Introducción
+
+Durante los últimos años, la empresa A ha demostrado tener una gran expansión y aceptación comercial en distintas partes del mundo. Sin embargo, aún existen limitaciones para lograr ser la empresa líder en la industria, por lo que existe la necesidad de optimizar los recursos disponibles y concentrarlos en actividades que eficienticen los resultados obtenidos con relación a la participación de mercado de esta empresa. El alcance de este estudio está limitado a la región de Centroamérica representada por los países de Costa Rica, El Salvador, Guatemala, Honduras, Nicaragua y Panamá.
+
+El objetivo del proyecto es identificar los principales factores que afectan la participación de mercado de la empresa A en los países antes mencionados. Para esto, se utilizarán herramientas estadísticas que determinen el grado de impacto de los distintos factores (variables) por país. Específicamente, se implementarán modelos de regresión lineal, con enfoque bayesiano, después de haber realizado un análisis exploratorio de datos.
+
+De manera inicial, se cree que las variables que aportan una mayor descripción y entendimiento a la participación del mercado en la zona de estudio para la empresa A son:
+
+Distribución numérica: permite un mayor alcance de ventas a público.
+Agotamientos: refleja una buena aceptación de los productos en los distintos países.
+Inversión en promociones TV: está más orientado a los países que muestran, con bases en censos poblacionales y estudios realizados, un porcentaje alto de la población que ve el televisor: Costa Rica  (92.4%) y Panamá (86%). Sin embargo, si observamos la zona entera, obtenemos un porcentaje promedio de 84% de personas que miran televisión.
+
+Esto no significa que las otras variables serán excluidas dentro del estudio. 
+A continuación, se procede con el análisis por país.
+
+
+# El Salvador{.tabset .tabset-fade .tabset-pills}
+
+
+## Análisis Exploratorio de Datos
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_el <- train_data %>%
+  filter(pais=="EL") 
+
+train_el <- train_el[,-c(1,2)]
+
+pairs.panels(train_el[,variables_a], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+
+```
+
+
+
+Es lógico pensar que una mayor Distribución Numérica (dist_num_A) garantiza un porcentaje más alto de puntos de ventas en los que está presente un producto, ayudando a alcanzar una mayor Participación de Mercado (share_A). Esto se confirma con la gráfica anterior, en dónde observamos una relación lineal positiva entre share_A y dist_num_A con un coeficiente de correlación de 0.79. 
+
+Por otro lado, la teoría económica afirma que la pendiente de la curva de la demanda es negativa, es decir que un mayor Precio por Unidad (ppu_A) equivale a una menor cantidad demandada de producto y, así, a una menor Participación de Mercado. Lo anterior se observa en la gráfica antes mecionada, dónde existe una relación lineal inversa entre ppu_a y share_A con un coeficiente de correlación de -0.85.
+
+Es importante mencionar que pareciera existir una relación lineal importante entre dist_num_A y ppu_A; sin embargo, no tendrían porque estar relacionadas de manera directa estas dos variables y correlación no implica causalidad.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_el[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+
+Analizando a la empresa A con respecto a la empresa B, se observa que existe una relación lineal inversa entre la Participación de Mercado de la empresa A con las Ventas de Unidades de la empresa B (ventas_unidades_B) con un coeficiente de correlación de -0.87 ya que mayor número de ventas de B repercurte en el rendimiento de la empresa A y éste en su Participación de Mercado.
+
+De igual manera, existe una relación inversa entre la Partipación de Mercado de la empresa A y la Participación de la empresa B (share_B). De la gráfica anterior se observa esta relación con un coeficiente de correlación de -0.85.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_el %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, El Salvador",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+```
+
+Se observa de la gráfica anterior que de abril a septiembre la Participación de Mercado en El Salvador presenta una variación mayor y alcanza sus puntos más bajos (llegando cerca de 40%). A principios de año alcanza sus puntos más altos con poca  variación. Finalmente, a finales de año disminuye un poco con respecto a los primeros tres meses; sin embargo, la variación es menor.
+
+En conclusión, la Distribución Numérica de la empresa A, el Precio por Unidad de la empresa A, las Ventas de Unidades de la empresa B, la Participación de Mercado de la empresa B y el Mes parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A. 
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*DistribuciónNuméricaA +\beta_2*Precio UnidadA +\beta_3* VentasUnidadesB +\beta_4* ShareB +\beta_5* Mes$$
+
+```{r echo=FALSE,  message=FALSE, warning=FALSE, include=TRUE}
+modelo.el  <- lm(share_A~ ppu_A+ventas_unidades_B+share_B+Mes+dist_num_A, data=train_el)
+
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.el)
+datatable(
+  data.frame(Estimate=round(modelo.el$coefficients,4),
+           Std.Error= round(out$coefficients[ , 2],4),
+           P_t = out$coefficients[ , 4],
+           R_ajus = round(summary(modelo.el)$r.squared,4)
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, únicamente los parámetros del Precio por Unidad, el Mes y La Distribución Numérica son significativamente distintos de cero con una confianza del 90%.
+
+La $R^{2}$ Ajustada del modelo es de 0.8258, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.el)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de El Salvador.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_el <- test_data %>%
+  filter(pais=="EL")
+
+test_el <- test_el[,c("share_A", "ppu_A", "ventas_unidades_B", "share_B", "Mes", "dist_num_A")]
+
+predicciones <- predict(modelo.el, newdata = test_el[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_el$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_el$share_A))
+
+```
+El modelo ajustado no predice tan bien los datos ya que tres valores reales no se encuentra dentro del intervalo de confianza al 95% de las predicciones del modelo.. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 0.00293419.
+
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills}
+
+$$ El\ Análisis\ Bayesiano\ queda\ como\ ejercicio\ al\ lector...\ \ \ \ \ \  jeje\ continuamos.$$
+$$ $$
+$$ $$
+
+
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_EL <- read_rds("EL/base_train_EL.RDS")
+base_test_EL <- read_rds("EL/base_test_EL.RDS")
+
+# Cargar Datos --------------------------------------------------
+jags_data_EL <- list(
+  share_A = base_train_EL$share_A,
+  ppu_A =base_train_EL$ppu_A,
+  dist_num_A = base_train_EL$dist_num_A,
+  ventas_unidades_B = base_train_EL$ventas_unidades_B,
+  share_B= base_train_EL$share_B,
+  month = base_train_EL$month,
+  n = nrow(base_train_EL)
+)
+
+
+
+jags_inits_EL <- function(){
+  list(be = rep(0,5),
+       et = rep(0,12),
+       tau = 1)
+}  
+
+
+jags_param_EL <- c("be", "et.adj",  "pred")
+
+
+coef_variables_EL <- data.frame(
+  parametro = c(paste0('be_', 1:5),
+                paste0('et_', 1:12)),
+  variable = c('Intercepto',
+               'ppu_A',
+               'dist_num_A',
+               'ventas_unidades_B',
+               'share_B',
+               "Jan","Feb" ,"Mar" ,"Apr" ,"May" ,"Jun","Jul",
+               "Aug", "Sep","Oct" ,"Nov","Dec" 
+  )
+)
+
+set.seed(20041997)
+#jags_model_EL <- jags(jags_data_EL, jags_inits_EL, jags_param_EL, 
+ #                      model.file = "FInal/EL/EL", 
+  #                     n.iter = 50000, 
+   #                    n.chains = 1, 
+    #                   n.thin = 1,
+     #                  n.burnin = 5000)
+
+jags_model_EL <- read_rds("EL/jags_model_EL.RDS")
+```
+
+
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+plot(jags_model_EL)
+
+jags_sims_EL <- jags_model_EL$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+
+
+```
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_EL <- jags_sims_EL %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_EL$share_A,
+        month = base_train_EL$month) %>% 
+  dplyr::select(month, share_A, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+
+
+datatable(base_mod_preds_EL)
+
+
+```
+
+
+### Análisis del Modelo
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_EL <- jags_sims_EL%>% 
+  dplyr::select(contains('be'), 
+                contains('et') 
+  ) %>% 
+  gather(parametro, sim) %>%
+  group_by(parametro) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.1),
+            mediana = median(sim),
+            q_9 = quantile(sim, probs = 0.9),
+            media = mean(sim),
+            probs = 100*prob(sim),
+            varianza = var(sim)) %>% 
+  ungroup %>% 
+  mutate(aux_param = str_extract(parametro, '(\\d)+'),
+         aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+  mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+  dplyr::select(-aux_param_2, -aux_param) %>% 
+  left_join(coef_variables_EL)  
+
+
+
+
+
+
+datatable(coeficientes_EL)
+```
+
+Se observa de la tabla anterior que, en el caso del modelo Bayesiano, únicamente el parámetro de Ventas de Unidades de la empresa B es significativamente distinto de cero. A diferencia del modelo lineal previamente ajustado, en donde se obtuvieron tres parámetros distintos de cero. Por otro lado, se observa que el Mes tampoco parece ser una variable significativa para el modelo ya que únicamente enero, septiembre y diciembre parecieran impactar en el mismo.
+
+### Coeficiente de Determinación y Error Estandar^2
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+cor(base_mod_preds_EL$q_5, base_mod_preds_EL$share_A)^2
+
+base_mod_preds_EL %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+```
+
+El coeficiente de determinación del modelo Bayesiano es de 0.9233127, mayor al lineal presentado anteriormente. 
+
+Por otro lado, el error cuadrático del modelo es 0.0001032136, menor al error del modelo lineal.
+
+
+### Análisis de residuales
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_res_EL <- base_mod_preds_EL %>%
+  mutate(res = share_A - media)
+
+nEL <- base_mod_res_EL %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+  labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal()
+
+ggplotly(nEL)
+```
+
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+
+
+### Ajustados vs Observados
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+
+lEL <- base_mod_preds_EL %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+
+ggplotly(lEL)
+
+```
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F}
+base_mod_EL <- base_train_EL %>% 
+  rbind(base_test_EL %>% 
+          mutate(share_A = NA))
+
+
+jags_sims2_EL <- read_rds("EL/jags_sims2_EL.RDS")
+```
+
+### Predicción
+
+```{r,echo=FALSE, include= T, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds_EL <- jags_sims2_EL %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_EL$share_A,
+        month = base_mod_EL$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+ajuste_pronos_EL <- base_mod_preds_EL %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_EL %>% dplyr::select(share_A) %>% exp) 
+ 
+
+datatable(ajuste_pronos_EL)
+
+mse <- MSE(y_pred = ajuste_pronos_EL$media, y_true = ajuste_pronos_EL$share_A)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Costa Rica{.tabset .tabset-fade .tabset-pills}
+
+## Análisis Exploratorio
+
+```{r , echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+train_CR <- train_data %>%
+  filter(pais=="CR") 
+
+train_CR <- train_CR[,-c(1,2)]
+
+pairs.panels(train_CR[,variables_a], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+
+La teoría económica afirma que la pendiente de la curva de la demanda es negativa, es decir que un mayor Precio por Unidad (ppu_A) equivale a una menor cantidad demandada de producto y, así, a una menor Participación de Mercado. Lo anterior se observa en la gráfica antes mecionada, dónde existe una relación lineal inversa entre ppu_a y share_A con un coeficiente de correlación de -0.84.
+
+Ante incrementos en la Promoción(inversion_promo_A) es lógico pensar que se observara un incremento en ventas, lo cual repercutira incrementando el market share de la empresa A
+(share_A). Esto se observa en la gráfica anterior, donde existe una relación positiva
+entre share_A e inversion_promo_A de 0.73.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_CR[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+
+Analizando a la empresa A con respecto a la empresa B, se observa que existe una relación lineal inversa entre la Participación de Mercado de la empresa A con las Ventas de Unidades de la empresa B (ventas_unidades_B) con un coeficiente de correlación de -0.44 ya que mayor número de ventas de B repercurte en el rendimiento de la empresa A y éste en su Participación de Mercado.
+
+La teoria economica nos dice que si dos productos son complementos al aumnetar el precio de uno, las ventas del otro producto bajaran, por lo que al incrementar el precio del producto B(ppu_b) se observa una disminución en las ventas del producto de la empresa A, provocando así una menos participacion de mercado. Esta relación se ve en el coeficiente de correlación entre share_A y ppu_B con un valor de -0.45.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_CR %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, Costa Rica",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+```
+
+Se observa en la gráfica anterior que los meses de Marzo y Abril la Participación de Mercado en Costa Rica presenta ls mayores niveles de variablidiad, mientras que a lo largo del año esta varibilidad disminuye. Finalmente en el mes de Diciembre se observa una incremento de ventas.
+En conclusión, la Inversión de Promoción de la empresa A, el Precio por Unidad de la empresa A, las Ventas de Unidades de la empresa B y el Precio por Unidad de la empresa B  parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A. 
+
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*Precio UnidadA +\beta_2* VentasUnidadesB +\beta_3*Precio UnidadB $$
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+modelo.cr  <- lm(share_A~ ppu_A+ventas_unidades_B+ppu_B, data=train_CR)
+
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.cr)
+datatable(
+  data.frame(Estimate=round(modelo.cr$coefficients,4),
+           Std.Error= round(out$coefficients[ , 2],4),
+           P_t = out$coefficients[ , 4],
+           R_ajus = round(summary(modelo.cr)$r.squared,4)
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, los parámetros de las Ventas de Unidades y el Intercept no son significativamente distintos de cero; en cambio, las otros dos parámetros sí lo son con una confianza del 99%.
+
+La $R^{2}$ Ajustada del modelo es de 0.7874, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.cr)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de Costa Rica.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_cr <- test_data %>%
+  filter(pais=="CR")
+
+test_cr <- test_cr[,c("share_A", "ppu_A", "ventas_unidades_B", "ppu_B")]
+
+predicciones <- predict(modelo.cr, newdata = test_cr[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_cr$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_cr$share_A))
+
+```
+El modelo ajustado predice muy bien los datos ya que unicamente un valor real no se encuentra dentro del intervalo de confianza al 95% de las predicciones del modelo. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 0.0004127895.
+
+
+
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills}
+
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_CR <- read_rds("CR/base_train_CR.RDS")
+base_test_CR <- read_rds("CR/base_test_CR.RDS")
+
+# Cargar Datos --------------------------------------------------
+jags_data_CR <- list(
+  share_A = base_train_CR$share_A,
+  ppu_A = base_train_CR$ppu_A,
+  ventas_unidades_B = base_train_CR$ventas_unidades_B,
+  ppu_B = base_train_CR$ppu_B,
+  #share_B= base_train_CR$share_B,
+  n = nrow(base_train_CR)
+)
+
+jags_inits_CR <- function(){
+  list(be = rep(0,4),
+       tau = 1)
+}
+
+jags_param_CR <- c("be", "pred")
+
+
+coef_variables_CR <- data.frame(
+  parametro = c(paste0('be_', 1:4)),
+  variable = c('Intercepto', 
+               'ppu_A',
+               'Ventas_B',
+               'ppu_B'
+               #'Share_B'
+               )
+)
+set.seed(20041997)
+#jags_model_CR <- jags(jags_data_CR, jags_inits_CR, jags_param_CR, 
+#                   model.file = "CR/CR2", 
+#                   n.iter = 50000, 
+#                   n.chains = 1, 
+#                   n.thin = 1,
+#                   n.burnin = 5000)
+jags_model_CR <- read_rds("CR/JAGS_MODELCR.RDS")
+```
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+plot(jags_model_CR)
+
+jags_sims_CR <- jags_model_CR$BUGSoutput$sims.matrix %>% 
+  data.frame
+```
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_CR <- jags_sims_CR %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_CR$share_A) %>% 
+  dplyr::select(share_A, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp) %>% round(4)
+
+
+
+
+
+datatable(base_mod_preds_CR)
+
+
+```
+
+Se observa de la tabla anterior que, al hacer la prueba de significancia de los parámetros, todos son distintos de cero con una signigicancial del 90%. A diferencia del modelo anterior en donde ninguno lo era (significancia del 95%).
+
+
+### Análisis del Modelo
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_CR <- jags_sims_CR %>% 
+  dplyr::select(contains('be')) %>%
+  gather(parametro, sim) %>%
+  group_by(parametro) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.1),
+            mediana = median(sim),
+            q_9 = quantile(sim, probs = 0.9),
+            media = mean(sim),
+            probs = 100*prob(sim),
+            varianza = var(sim)) %>% 
+  ungroup %>% 
+  mutate(aux_param = str_extract(parametro, '(\\d)+'),
+         aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+  mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+  dplyr::select(-aux_param_2, -aux_param) %>% 
+  left_join(coef_variables_CR)  
+
+
+datatable(coeficientes_CR)
+```
+
+Se observa de la tabla anterior que, al hacer la prueba de significancia de los parámetros, todos son distintos de cero con una signigicancial del 90%. A diferencia del modelo anterior en donde ninguno lo era (significancia del 95%).
+
+
+### Coeficiente de Determinación y Error Estandar^2
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+cor(base_mod_preds_CR$q_5, base_mod_preds_CR$share_A)^2
+
+base_mod_preds_CR %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+```
+
+La R ajustada del modelo Bayesiano es de 0.7908095, mayor al lineal presentado anteriormente. 
+
+Por otro lado, el error cuadrático del modelo es 0.0004210458, ligeramente mayor al error del modelo lineal.
+
+### Análisis de Residuales
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_res_CR <- base_mod_preds_CR %>%
+  mutate(res = share_A - media)
+
+nCR <- base_mod_res_CR %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+ labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal() 
+ggplotly(nCR)
+```
+
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+### Ajustados vs Observados
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+# Gráfico de ajustados vs observados
+
+lCR <- base_mod_preds_CR %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+ggplotly(lCR)
+
+```
+
+
+
+### Predicción
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F}
+base_mod_CR <- base_train_CR %>% 
+  rbind(base_test_CR %>% 
+          mutate(share_A = NA))
+
+
+jags_sims2_CR <- read_rds("CR/jags_sims2_CR.RDS")
+```
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds2_CR <- jags_sims2_CR %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_CR$share_A) %>% 
+  dplyr::select(share_A,media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+ajuste_pronos2_CR <- base_mod_preds2_CR %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_CR %>% dplyr::select(share_A) %>% exp)
+datatable(ajuste_pronos2_CR)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+# Honduras{.tabset .tabset-fade .tabset-pills}
+
+## Análisis Exploratorio de Datos
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_hd <- train_data %>%
+  filter(pais=="HD") 
+
+train_hd <- train_hd[,-c(1,2)]
+
+pairs.panels(train_hd[,variables_a], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+
+```
+Es fácil comrpobar que hay una relación directa en las Ventas de Unidades de la empresa A (ventas_unidades_A) con su Participación en el Mercado, lo cual se observa en la gráfica anterior con un coeficiente de correlación de 0.59.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_hd[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+Analizando a la empresa A con respecto a la empresa B en Honduras, se observa que existe una relación lineal inversa entre la Participación de Mercado de la empresa A con el Precio por Unidad de la empresa B (ppu_B). La teoría económica nos dice que se tratan de el producto que fabrica la empresa B es un sustitito directo del fabricado por la empresa A; es decir, a mayore precio del producto fabricado por B, mayor Participación de la Empresa A en el Mercado. El coeficiente de correlación observado es de 0.43.
+
+De igual manera, existe una relación inversa entre la Partipación de Mercado de la empresa A y la Participación de la empresa B (share_B). De la gráfica anterior se observa esta relación con un coeficiente de correlación de -0.67.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_hd %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, Honduras",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+
+```
+Finalmente, al observar la Participación de Mercado por Mes en Honduras no se observa que exista una relación de dependencia.
+
+En conclusión, la Venta de Unidades de la empresa A, el Precio por Unidad de la empresa B y la Participación de Mercado de la empresa B parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A en Honduras. 
+
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*VentasUnidadesA +\beta_2*Precio UnidadB +\beta_3* ShareB $$
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+modelo.hd <- lm(share_A~ ventas_unidades_A+ppu_B+share_B, data=train_hd)
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.hd)
+datatable(
+  data.frame(Estimate=round(modelo.hd$coefficients,4),
+           Std.Error= round(out$coefficients[ , 2],4),
+           P_t = out$coefficients[ , 4],
+           R_ajus = round(summary(modelo.hd)$r.squared,4)
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, el parámetros de el Precio por Unidad no es significativamente distintos de cero; en cambio, las otros dos parámetros sí lo son con una confianza del 99%.
+
+La $R^{2}$ Ajustada del modelo es de 0.7472, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.hd)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de Honduras.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_hd <- test_data %>%
+  filter(pais=="HD")
+
+test_hd <- test_hd[,c("share_A", "ventas_unidades_A", "ppu_B", "share_B")]
+
+predicciones <- predict(modelo.hd, newdata = test_hd[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_hd$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_hd$share_A))
+
+```
+El modelo ajustado no predice tan bien los datos ya que tres valores reales no se encuentra dentro del intervalo de confianza al 95% de las predicciones del modelo. Es importante notar que la varianza de las predicciones es menor en este modelo. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 8.275479e-05.
+
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills}
+
+
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_HD <- read_rds("HD/base_train_HD.RDS")
+base_test_HD <- read_rds("HD//base_test_HD.RDS")
+
+# Cargar Datos --------------------------------------------------
+# Cargar Datos --------------------------------------------------
+jags_data_HD <- list(
+  share_A = base_train_HD$share_A,
+  ventas_unidades_A = base_train_HD$ventas_unidades_A,
+  ppu_B = base_train_HD$ppu_B,
+  share_B = base_train_HD$share_B,
+  n = nrow(base_train_HD)
+)
+
+
+jags_inits_HD <- function(){
+  list(be = rep(0,4),
+       tau = 1)
+}
+
+jags_param_HD <- c("be", "pred")
+
+
+coef_variables_HD <- data.frame(
+  parametro = c(paste0('be_', 1:4)),
+  variable = c('Intercepto', 
+               'ventas_unidades_A',
+               'ppu_B',
+               'share_B'
+               )
+)
+set.seed(20041997)
+#jags_model_HD <- jags(jags_data_HD, jags_inits_HD, jags_param_HD, 
+ #                      model.file = "FInal/HD/modelo_bayesiano_HD", 
+  #                     n.iter = 50000, 
+   #                    n.chains = 1, 
+    #                   n.thin = 1,
+     #                  n.burnin = 5000)
+
+
+jags_model_HD <- read_rds("HD/jags_model_HD.RDS")
+```
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+plot(jags_model_HD)
+#jags_model_HD <- read_rds("FInal/HD/jags_model_HD.RDS")
+
+jags_sims_HD <- jags_model_HD$BUGSoutput$sims.matrix %>% 
+  data.frame
+```
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_HD <- jags_sims_HD %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_HD$share_A) %>% 
+  dplyr::select(share_A, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+
+
+datatable(base_mod_preds_HD)
+
+
+```
+
+### Análisis del Modelo
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_HD <- jags_sims_HD %>% 
+  dplyr::select(contains('be')) %>%
+  gather(parametro, sim) %>%
+  group_by(parametro) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.1),
+            mediana = median(sim),
+            q_9 = quantile(sim, probs = 0.9),
+            media = mean(sim),
+            probs = 100*prob(sim),
+            varianza = var(sim)) %>% 
+  ungroup %>% 
+  mutate(aux_param = str_extract(parametro, '(\\d)+'),
+         aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+  mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+  dplyr::select(-aux_param_2, -aux_param) %>% 
+  left_join(coef_variables_HD)  
+
+
+
+datatable(coeficientes_HD)
+```
+
+Se observa de la tabla anterior que en la significancia de los parámetros en el modelo Bayesiano en Honduras es la misma que en el modelo lineal previamente ajustado, ya que se observa que el parámetro del Precio por Unidad de la empresa B es el único que no es significativamente distinto a cero en ambos modelos.
+
+### Coeficiente de Determinación y Error Estandar^2
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+cor(base_mod_preds_HD$q_5, base_mod_preds_HD$share_A)^2
+
+base_mod_preds_HD %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+```
+
+La R ajustada del modelo Bayesiano es de 0.7476754, ligeramente mayor al lineal presentado anteriormente. 
+
+Por otro lado, el error cuadrático del modelo es 0.0003890378, mayor al error del modelo lineal.
+
+### Análisis de Residuales
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_res_HD <- base_mod_preds_HD %>%
+  mutate(res = share_A - media)
+
+nHD<- base_mod_res_HD %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+  labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal()
+ggplotly(nHD)
+```
+
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+
+### Ajustados vs Observados
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+# Gráfico de ajustados vs observados
+
+lHD <- base_mod_preds_HD %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+ggplotly(lHD)
+
+```
+
+
+### Predicción
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F}
+base_mod_HD <- base_train_HD %>% 
+  rbind(base_test_HD %>% 
+          mutate(share_A = NA))
+
+jags_sims2_HD <- read_rds("HD/jags_sims2_HD.RDS")
+```
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds_HD <- jags_sims2_HD %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_HD$share_A) %>% 
+  dplyr::select(share_A, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+ajuste_pronos_HD <- base_mod_preds_HD %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_HD %>% dplyr::select(share_A) %>% exp) 
+
+
+
+datatable(ajuste_pronos_HD)
+```
+
+
+
+
+# Guatemala{.tabset .tabset-fade .tabset-pills}
+
+## Análisis Exploratorio de Datos
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_gt <- train_data %>%
+  filter(pais=="GT") 
+
+train_gt <- train_gt[,-c(1,2)]
+
+pairs.panels(train_gt[,variables_a], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+
+```
+Las ventas de Unidades de la Empresa A, cómo se ha explicado anteriormente, afecta de manera positiva a la Participación en el Mercado de la empresa. Tal comportamiento se oberva para Guatemala con un coeficiente de correlación de 0.86.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_gt[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+
+Existe una relación inversa entre la Partipación de Mercado de la empresa A y la Participación de la empresa B (share_B). De la gráfica anterior se observa esta relación con un coeficiente de correlación de -0.75.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_gt %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, Guatemala",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+
+```
+Finalmente, al observar la Participación de Mercado por Mes en Guatemala se observa que en los primeros dos meses del año la dispersión es la más baja, pero en el resto del año aumenta y la media varia conforme al mes.
+
+En conclusión, la Venta de Unidades de la empresa A, la Participación de Mercado de la empresa B y el Mes parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A en Guatemala. 
+
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*VentaUnidadesdA +\beta_2*ShareB +\beta_3* Mes$$
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+modelo.gt <- lm(share_A~ ventas_unidades_A+share_B+Mes, data=train_gt)
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.gt)
+datatable(
+  data.frame(Estimate=round(modelo.gt$coefficients,4),
+           Std.Error= round(out$coefficients[ , 2],4),
+           P_t = out$coefficients[ , 4],
+           R_ajus = round(summary(modelo.gt)$r.squared,4)
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, el parámetro del Mes no es significativamente distinto de cero; en cambio, las demás parámetros sí lo son con una confianza del 99%.
+
+La $R^{2}$ Ajustada del modelo es de 0.8528, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.gt)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de Guatemala.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_gt <- test_data %>%
+  filter(pais=="GT")
+
+test_gt <- test_gt[,c("share_A", "ventas_unidades_A", "share_B", "Mes")]
+
+predicciones <- predict(modelo.gt, newdata = test_gt[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_gt$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_gt$share_A))
+
+```
+El modelo ajustado predice de manera adecuada las nuevas observaciones ya que las todas las predicciones se encuentran dentro del intervalo de confianza al 95%. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 0.0005007176.
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills}
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_GT <- read_rds("GT/base_train_GT.RDS")
+base_test_GT <- read_rds("GT/base_test_GT.RDS")
+
+
+
+# Cargar Datos --------------------------------------------------
+jags_data_GT <- list(
+  share_A = base_train_GT$share_A,
+  ventas_unidades_A = base_train_GT$ventas_unidades_A,
+  share_B= base_train_GT$share_B,
+  month= base_train_GT$month,
+  n = nrow(base_train_GT)
+)
+
+
+jags_inits_GT <- function(){
+  list(be = rep(0,3),
+       et = rep(0,12),
+       tau = 1)
+}
+
+jags_param_GT <- c("be","et.adj" ,"pred")
+
+
+coef_variables_GT <- data.frame(
+  parametro = c(paste0('be_', 1:3),
+                paste0('et_', 1:12)),
+  variable = c('Intercepto', 
+               'Ventas_A',
+               'Share_B',
+               "Jan","Feb" ,"Mar" ,"Apr" ,"May" ,"Jun","Jul",
+               "Aug", "Sep","Oct" ,"Nov","Dec" )
+)
+set.seed(20041997)
+#jags_model_GT <- jags(jags_data_GT, jags_inits_GT, jags_param_GT, 
+ #                  model.file = "FInal/GT/GT", 
+  #                 n.iter = 50000, 
+   #                n.chains = 1, 
+    #               n.thin = 1,
+     #              n.burnin = 5000)
+
+
+jags_model_GT<- read_rds("GT/jags_model_GT")
+```
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+plot(jags_model_GT)
+
+jags_sims_GT <- jags_model_GT$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+```
+
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_GT <- jags_sims_GT %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_GT$share_A,
+        month = base_train_GT$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+
+
+datatable(base_mod_preds_GT)
+
+
+```
+
+### Análisis del Modelo
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_GT <- jags_sims_GT %>% 
+    dplyr::select(contains('be'),
+                  contains('et')) %>%
+    gather(parametro, sim) %>%
+    group_by(parametro) %>% 
+    summarise(q_1 = quantile(sim, probs = 0.1),
+              mediana = median(sim),
+              q_9 = quantile(sim, probs = 0.9),
+              media = mean(sim),
+              probs = 100*prob(sim),
+              varianza = var(sim)) %>% 
+    ungroup %>% 
+    mutate(aux_param = str_extract(parametro, '(\\d)+'),
+           aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+    mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+    dplyr::select(-aux_param_2, -aux_param) %>% 
+    left_join(coef_variables_GT)  
+
+
+datatable(coeficientes_GT)
+```
+
+Se observa de la tabla anterior que, en el caso del modelo Bayesiano, únicamente los parámetro de Ventas de Unidades de la empresa A y la Participación de Mercado de de la empresa B son significativamente distinto de cero. A diferencia del modelo lineal previamente ajustado, el parámetro del Intercepto no es significatvamente distintos de cero. Por otro lado, se observa que que el Mes tampoco parece ser una variable significativa para el modelo, al igual que en el caso anterior.
+
+
+### Coeficiente de Determinación y Error Estandar^2
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+cor(base_mod_preds_GT$q_5, base_mod_preds_GT$share_A)^2
+
+base_mod_preds_GT %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+
+
+```
+
+El coeficiente de determinación del modelo Bayesiano es de 0.8877435, mayor al lineal presentado anteriormente. 
+
+Por otro lado, el error cuadrático del modelo es 0.0001336613, menor al error del modelo lineal.
+
+### Análisis de residuales
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_res_GT <- base_mod_preds_GT %>%
+  mutate(res = share_A - media)
+
+nGT<- base_mod_res_GT %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal()
+ggplotly(nGT)
+```
+
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+### Ajustados vs Observados
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+# Gráfico de ajustados vs observados
+
+lHD <- base_mod_preds_GT %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+ggplotly(lHD)
+
+```
+
+
+
+### Predicción
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F}
+base_mod_GT <- base_train_GT %>% 
+  rbind(base_test_GT %>% 
+          mutate(share_A = NA))
+
+jags_model2 <- read_rds("GT/jags_model2.RDS")
+
+jags_sims2_GT <- jags_model2$BUGSoutput$sims.matrix %>% 
+  data.frame
+```
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds_GT <- jags_sims2_GT %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_GT$share_A,
+        month = base_mod_GT$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+ajuste_pronos_GT <- base_mod_preds_GT %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_GT %>% dplyr::select(share_A) %>% exp)
+datatable(ajuste_pronos_GT)
+
+```
+
+
+
+# Centro América{.tabset .tabset-fade .tabset-pills}
+## Análisis Exploratorio de Datos
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_cam <- train_data %>%
+  filter(pais=="CAM") 
+
+train_cam <- train_cam[,-c(1,2)]
+
+variables_a2 <- variables_a[-c(7,8)]
+
+pairs.panels(train_cam[,variables_a2], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+
+```
+Cómo se ha mencionado anteriormente, la teoría económica nos dice que existe una relación inversa entre el Precio por Unidad del producto fabricado por la empresa A y su Market Share. Lo anterior se observa en la gráfica anterior con una correlación de -0.47.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_cam[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+Analizando a la empresa A con respecto a la empresa B en Centro América, se observa que existe una relación lineal inversa entre la Participación de Mercado de la empresa A con la Distribución Numérica de la empresa B (dist_num_B) con un coeficiente de correlación de -0.49. Es lógico pensar que una mayor Distribución de Ventas de la competencia fortalece sus ventas, aumentando su Participación de Mercado y disminuyendo la Participación de A.
+
+Por otro lado, se espera que a mayor Venta de Unidades de la empresa B (ventas_unidades_B), la Participación en el Mercado de la empresa A sea menor. Tal relación se oberva en la gráfica con un coeficiente de correlación del -0.59. 
+
+De igual manera, existe una relación inversa entre la Partipación de Mercado de la empresa A y la Participación de la empresa B (share_B). De la gráfica anterior se observa esta relación con un coeficiente de correlación de -0.72.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_cam %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, Centro América",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+
+```
+Finalmente, al observar la Participación de Mercado por Mes en Centro América no se observa que exista una relación de dependencia ya que, salvo en marzo y abril, la disperción de la Participación se mantuvo similar. 
+
+En conclusión, el Precio por Unidad de la empresa A, la Venta de Unidades de la empresa B, la Distribución Numérica de la empresa B  y  la Participación de Mercado de la empresa B parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A en Centro América. 
+
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*PrecioUnidadA +\beta_2*VentasUnidadesB +\beta_3* DistribuciónNuméricaB + +\beta_4*ShareB$$
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+modelo.cam <- lm(share_A~ ppu_A + ventas_unidades_B+dist_num_B+share_B, data=train_cam)
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.cam)
+datatable(
+  data.frame(Estimate=round(modelo.cam$coefficients,4),
+           Std.Error= round(out$coefficients[ , 2],4),
+           P_t = out$coefficients[ , 4],
+           R_ajus = round(summary(modelo.cam)$r.squared,4)
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, el parámetro de las Ventas de Unidades no es significativamente distinto de cero; en cambio, los demás parámetros sí lo son con una confianza del 99%.
+
+La $R^{2}$ Ajustada del modelo es de 0.7056, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.cam)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de Centro América.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_cam <- test_data %>%
+  filter(pais=="CAM")
+
+test_cam <- test_cam[,c("share_A", "ppu_A", "ventas_unidades_B", "dist_num_B", "share_B")]
+
+predicciones <- predict(modelo.cam, newdata = test_cam[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_cam$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_cam$share_A))
+
+```
+El modelo ajustado predice bien los datos ya que unicamente una observación se encuentra fuera del intervalo de confianza al 95% de las predicciones del modelo. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 0.0001845888.
+
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills}
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_CAM <- read_rds("CAM/base_train_CAM.RDS")  
+ 
+base_test_CAM <- read_rds("CAM/base_test_CAM.RDS") 
+
+
+
+jags_data_CAM <- list(
+  share_A = base_train_CAM$share_A,
+  ppu_A = base_train_CAM$ppu_A,
+  share_B= base_train_CAM$share_B,
+  dist_num_B = base_train_CAM$dist_num_B,
+  ventas_unidades_B = base_train_CAM$ventas_unidades_B,
+    n = nrow(base_train_CAM)
+)
+
+
+
+jags_inits_CAM <- function(){
+  list(be = rep(0,5),
+         tau = 1)
+}  
+
+
+jags_param_CAM <- c("be",  "pred")
+
+
+coef_variables_CAM <- data.frame(
+  parametro = c(paste0('be_', 1:5)),
+  variable = c('Intercepto',
+               'ppu_A',
+               'share_B',
+               'dist_num_B',
+               'ventas_unidades_B'
+               
+                )
+)
+
+set.seed(20041997)
+#jags_model_CAM <- jags(jags_data_CAM, jags_inits_CAM, jags_param_CAM, 
+ #                  model.file = "FInal/CAM/CAM1", 
+  #                 n.iter = 50000, 
+   #                n.chains = 1, 
+    #               n.thin = 1,
+     #              n.burnin = 5000)
+
+
+jags_model_CAM<- read_rds("CAM/jags_model_CAM.RDS")
+```
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+plot(jags_model_CAM)
+
+jags_sims_CAM <- jags_model_CAM$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+
+```
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_CAM <- jags_sims_CAM %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_CAM$share_A,
+      month = base_train_CAM$month) %>% 
+  dplyr::select(month, share_A, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+
+
+
+datatable(base_mod_preds_CAM)
+
+
+```
+
+### Análisis del Modelo
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_CAM <- jags_sims_CAM%>% 
+  dplyr::select(contains('be') 
+         ) %>% 
+  gather(parametro, sim) %>%
+  group_by(parametro) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.1),
+            mediana = median(sim),
+            q_9 = quantile(sim, probs = 0.9),
+            media = mean(sim),
+            probs = 100*prob(sim),
+            varianza = var(sim)) %>% 
+  ungroup %>% 
+  mutate(aux_param = str_extract(parametro, '(\\d)+'),
+         aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+  mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+  dplyr::select(-aux_param_2, -aux_param) %>% 
+  left_join(coef_variables_CAM)  
+
+
+
+
+datatable(coeficientes_CAM)
+```
+
+Se observa de la tabla anterior que, al igual que en el modelo anterior, el parámetro de las Ventas de Unidades de la empresa B no es significativamente distinto de cero.
+
+### Coeficiente de Determinación y Error Estandar^2
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+cor(base_mod_preds_CAM$q_5, base_mod_preds_CAM$share_A)^2
+
+base_mod_preds_CAM %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+```
+El coeficiente de determinación del modelo Bayesiano es de 0.7040613, ligeramente menor al lineal presentado anteriormente. 
+
+Por otro lado, el error cuadrático del modelo es 6.163883e-05, menor al error del modelo lineal.
+
+
+### Análisis de Residuales
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_res_CAM <- base_mod_preds_CAM %>%
+  mutate(res = share_A - media)
+nCAM<- base_mod_res_CAM %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+  labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal()
+
+ggplotly(nCAM)
+```
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+
+### Ajustados vs Observados
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+# Gráfico de ajustados vs observados
+
+lCAM <- base_mod_preds_CAM %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+
+ggplotly(lCAM)
+
+```
+
+
+
+### Predicción
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F}
+
+base_mod_CAM2 <- base_train_CAM %>% 
+  rbind(base_test_CAM %>% 
+          mutate(share_A = NA))
+
+jags_model2_CAM<- read_rds("CAM/jags_model2_CAM.RDS")
+
+jags_sims2_CAM <- jags_model2_CAM$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+
+```
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_CAM <- jags_sims2_CAM %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_CAM2$share_A,
+        month = base_mod_CAM2$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+ajuste_pronos_CAM <- base_mod_preds_CAM %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_CAM %>% dplyr::select(share_A) %>% exp)
+datatable(ajuste_pronos_CAM)
+```
+
+
+
+
+
+# Nicaragua{.tabset .tabset-fade .tabset-pills}
+
+## Análisis Exploratorio de Datos
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_nic <- train_data %>%
+  filter(pais=="NIC") 
+
+train_nic <- train_nic[,-c(1,2)]
+
+pairs.panels(train_nic[,variables_a2], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+
+```
+Cómo se mencionó anteriormente, las ventas de Unidades de la Empresa A afectan de manera positiva a la Participación en el Mercado de la empresa. Tal comportamiento se oberva para Nicaragua con un coeficiente de correlación de 0.80. Un comportamiento muy similar al observado en Guatemala.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_nic[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+
+Existe una relación inversa entre la Partipación de Mercado de la empresa A y la Participación de la empresa B (share_B). De la gráfica anterior se observa esta relación con un coeficiente de correlación de -1.00.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_gt %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, Nicaragua",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+
+```
+Finalmente, al observar la Participación de Mercado por Mes en Nicaragua no se observa que exista una relación de dependencia ya que, salvo en marzo y abril, la disperción de la Participación se mantuvo similar.
+
+En conclusión, la Venta de Unidades de la empresa A y la Participación de Mercado de la empresa B parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A en Guatemala. 
+
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*VentaUnidadesdA +\beta_2*ShareB$$
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+modelo.nic <- lm(share_A~ ventas_unidades_A+share_B, data=train_nic)
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.nic)
+datatable(
+  data.frame(Estimate=round(modelo.nic$coefficients,4),
+           Std.Error= round(out$coefficients[ , 2],4),
+           P_t = out$coefficients[ , 4],
+           R_ajus = round(summary(modelo.nic)$r.squared,4)
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, el parámetro de las Ventas de Unidades no es significativamente distinto de cero; en cambio, los demás parámetros sí lo son con una confianza del 99%.
+
+La $R^{2}$ Ajustada del modelo es de 0.9959, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.gt)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de Nicaragua.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_nic <- test_data %>%
+  filter(pais=="NIC")
+
+test_nic <- test_nic[,c("share_A", "ventas_unidades_A", "share_B")]
+
+predicciones <- predict(modelo.nic, newdata = test_nic[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_nic$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_nic$share_A))
+
+```
+El modelo ajustado no predice de manera adecuada las nuevas observaciones ya que unicamente dos observaciones se encuentran dentro del intervalo de confianza al 95%. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 0.02926378.
+
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills} 
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_NIC <- read_rds("NIC/base_train_NIC.RDS")
+base_test_NIC <- read_rds("NIC/base_test_NIC.RDS")
+
+
+
+# Cargar Datos --------------------------------------------------
+jags_data_NIC <- list(
+  share_A = base_train_NIC$share_A,
+  ventas_unidades_A = base_train_NIC$ventas_unidades_A,
+  share_B =base_train_NIC$share_B,
+  n = nrow(base_train_NIC)
+)
+jags_inits_NIC <- function(){
+  list(be = rep(0,3),
+       tau=1)
+}
+
+jags_param_NIC <- c("be", "pred")
+
+
+coef_variables_NIC <- data.frame(
+  parametro = c(paste0('be_', 1:3)),
+  variable = c('Intercepto', 
+               'ventas_unidades_A',
+               'share_B'
+               )
+)
+set.seed(20041997)
+#jags_model_NIC <- jags(jags_data_NIC, jags_inits_NIC, jags_param_NIC, 
+ #                      model.file = "FInal/NIC/NIC", 
+  #                     n.iter = 50000, 
+   #                    n.chains = 1, 
+    #                   n.thin = 1,
+     #                  n.burnin = 5000)
+
+
+jags_model_NIC<- read_rds("NIC/jags_model_NIC.RDS")
+```
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+plot(jags_model_NIC)
+
+jags_sims_NIC <- jags_model_NIC$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+```
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds_NIC <- jags_sims_NIC %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_NIC$share_A) %>% 
+  dplyr::select(share_A, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+
+datatable(base_mod_preds_NIC)
+
+
+```
+
+### Análisis del Modelo
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_NIC <- jags_sims_NIC %>% 
+  dplyr::select(contains('be')) %>%
+  gather(parametro, sim) %>%
+  group_by(parametro) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.1),
+            mediana = median(sim),
+            q_9 = quantile(sim, probs = 0.9),
+            media = mean(sim),
+            probs = 100*prob(sim),
+            varianza = var(sim)) %>% 
+  ungroup %>% 
+  mutate(aux_param = str_extract(parametro, '(\\d)+'),
+         aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+  mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+  dplyr::select(-aux_param_2, -aux_param) %>% 
+  left_join(coef_variables_NIC)  
+
+
+
+datatable(coeficientes_NIC)
+```
+
+Se observa de la tabla anterior que, al igual que en el modelo anterior, el parámetro de las Ventas de Unidades no es significativamente distinto de cero.
+
+
+### Coeficiente de Determinación y Error Estandar^2
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+cor(base_mod_preds_NIC$q_5, base_mod_preds_NIC$share_A)^2
+
+base_mod_preds_NIC %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+
+
+```
+
+El coeficiente de determinación del modelo Bayesiano es de 0.9957878, ligeramente menor al lineal presentado anteriormente. 
+
+Por otro lado, el error cuadrático del modelo es 9.979881e-06, menor al error del modelo lineal.
+
+### Análisis de Residuales
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_res_NIC <- base_mod_preds_NIC %>%
+  mutate(res = share_A - media)
+
+nNIC<- base_mod_res_NIC %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+  labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal()
+
+ggplotly(nNIC)
+```
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+
+### Ajustados vs Observados
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+# Gráfico de ajustados vs observados
+
+lNIC <- base_mod_preds_NIC %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+ggplotly(lNIC)
+
+```
+
+
+
+### Predicción
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F}
+base_mod_NIC <- base_train_NIC %>% 
+  rbind(base_test_NIC %>% 
+          mutate(share_A = NA))
+
+
+jags_model2_NIC<- read_rds("NIC/jags_model2_NIC.RDS")
+
+jags_sims2_NIC <- jags_model2_NIC$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+```
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds_NIC <- jags_sims2_NIC %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_NIC$share_A,
+        month = base_mod_NIC$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+ajuste_pronos_NIC <- base_mod_preds_NIC %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_NIC %>% dplyr::select(share_A))
+
+datatable(ajuste_pronos_NIC)
+```
+
+
+
+
+
+# Panamá{.tabset .tabset-fade .tabset-pills}
+
+## Análisis Exploratorio de Datos
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_pty <- train_data %>%
+  filter(pais=="PTY") 
+
+train_pty <- train_pty[,-c(1,2)]
+
+pairs.panels(train_pty[,variables_a2], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+
+```
+Cómo se mencionó anteriormente, las ventas de Unidades de la Empresa A afectan de manera positiva a la Participación en el Mercado de la empresa. Tal comportamiento se oberva para Paraguay con un coeficiente de correlación de 0.24. 
+
+Por otro lado, una disminución en el Inventario de la empresa A (inventarios_A) se traduce en una aceleración en las ventas para dicha empresa. Por tal motivo, es lógico pensar que existe una relación inversa entre los Inventarios de la empresa A y su Participación en el Mercado; dicho comportamiento se refleja en la gráfica anterior con un coeficiente de correlación de -0.30.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+pairs.panels(train_pty[,variables_b], 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE,
+             lm = T
+)
+
+```
+Como se mencionó anteriormente, existe una relación inversa entre la Distribución Numérica de la empresa B con la Participación en el Mercado de la empresa A. Tal relación se explica en la gráfica anterior con un coeficiente de correlación del -0.46.
+
+Por otro lado, las Ventas de Unidades de la empresa B impactarán en manera negativa a la Participación de A. Lo anterior se observa en la gráfica con un coeficiente de correlación lineal del -0.24.
+
+Existe una relación inversa entre la Partipación de Mercado de la empresa A y la Participación de la empresa B (share_B). De la gráfica anterior se observa esta relación con un coeficiente de correlación de -0.60.
+
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+train_gt %>% plot_ly(y=~ share_A, x=~Mes) %>%
+  add_boxplot() %>%
+  layout(title="Box Plot Market Share empresa A por Mes, Panamá",
+         yaxis=list(title="Market Share empresa A", showgrid=F))
+
+```
+Finalmente, al observar la Participación de Mercado por Mes en Panamá no se observa que exista una relación de dependencia ya que, salvo en febrero y abril, la disperción de la Participación se mantuvo similar.
+
+En conclusión, la Venta de Unidades de la empresa A y la Participación de Mercado de la empresa B parecen ser variables adecuadas para ajustar un modelo lineal para representar la Particpación de Mercado de la empresa A en Guatemala. 
+
+
+## Ajuste del modelo lineal{.tabset .tabset-fade .tabset-pills}
+
+Se ajustará un modelo de regresión lineal múltiple, representado por:
+
+$$ ShareA \sim \beta_0 + \beta_1*DistribuciónNuméricaA +\beta_2*VentasUnidadesA +\beta_3*InventariosA +\beta_4*DistribuciónNuméricaB +\beta_5*VentasUnidadesB +\beta_6*ShareB$$
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+modelo.pty <- lm(share_A~ dist_num_A+ventas_unidades_A+inventarios_A+dist_num_B+ventas_unidades_B+share_B, data=train_pty)
+```
+
+
+
+### Análisis del modelo: Prueba t y R Ajustada
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+out <- summary(modelo.pty)
+datatable(
+  data.frame(Estimate=modelo.pty$coefficients,
+           Std.Error= out$coefficients[ , 2],
+           P_t = out$coefficients[ , 4],
+           R_ajus = summary(modelo.pty)$r.squared
+           )
+)
+
+
+
+```
+Se observa de la tabla anterior que, a pesar de que todas las variables de manera individual impactaban sobre la Participación de Mercado, únicamente los parámetros de Ventas Unidades de la empresa B y el de la Participación de B son distintos de cero con una confianza del 99%.
+
+La $R^{2}$ Ajustada del modelo es de 0.99, por lo que podemos afirmar que la mayor parte de la variablidad del modelo se encuentra explicada por las variables regresoras y no por los residuales.
+
+
+### Análisis de Residuales
+
+Se procederá a analizar los residuales del modelo ajustado. Particularmente se buscará que los residuales se distribuyan como una Normal, tengan varianza constante y sean independientes.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+par(mfrow=c(2,2))
+plot(modelo.pty)
+par(mfrow=c(1,1))
+
+```
+
+Se observa de la primer gráfica que los residuales tienen una varianza constante. Del QQ plot se confirma que siguen una distribución normal con media cero. De la tercer gráfica se observa que los residuales son independientes entre sí. Finalmente, ninguna observación es atípica. Se concluye que se cumplen los supuestos sobre los residuales.
+
+
+### Predicción
+
+Finalmente, se validará el modelo ajustado previamente con el test set de Paraguay.
+
+```{r, echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+test_pty <- test_data %>%
+  filter(pais=="PTY")
+
+test_pty <- test_pty[,c("share_A", "dist_num_A", "ventas_unidades_A", "inventarios_A", "dist_num_B", "ventas_unidades_B", "share_B")]
+
+predicciones <- predict(modelo.pty, newdata = test_pty[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_pty$share_A)
+datatable(predicciones)
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_pty$share_A))
+
+```
+El modelo ajustado predice de manera adecuada las nuevas observaciones ya que todas se encuentran dentro del intervalo de confianza al 95%. Adicionalmente, se obtuvo un Error Cuadrático Medio (MSE) de 1.633846e-19.
+
+## Ajuste del Modelo Bayesiano{.tabset .tabset-fade .tabset-pills}
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_train_PTY <- read_rds("PTY/base_train_PTY.RDS")
+base_test_PTY <- read_rds("PTY/base_test_PTY.RDS")
+
+
+
+# Cargar Datos --------------------------------------------------
+jags_data_PTY <- list(
+  share_A = base_train_PTY$share_A,
+  dist_num_A = base_train_PTY$dist_num_A,
+  ventas_unidades_A = base_train_PTY$ventas_unidades_A,
+  inventarios_A = base_train_PTY$inventarios_A,
+  dist_num_B = base_train_PTY$dist_num_B,
+  ventas_unidades_B= base_train_PTY$ventas_unidades_B,
+  share_B = base_train_PTY$share_B,
+  n = nrow(base_train_PTY)
+)
+
+
+jags_inits_PTY <- function(){
+  list(be = rep(0,7))
+}
+
+jags_param_PTY <- c("be", "pred")
+
+
+coef_variables_PTY <- data.frame(
+  parametro = c(paste0('be_', 1:7)),
+  variable = c('Intercepto', 
+               'dist_num_A',
+               'ventas_unidades_A',
+               'inventarios_A',
+               'dist_num_B',
+               'ventas_unidades_B',
+               'share_B')
+)
+set.seed(20041997)
+#jags_model_PTY <- jags(jags_data_PTY, jags_inits_PTY, jags_param_PTY, 
+ #                  model.file = "FInal/PTY/PTY", 
+  #                 n.iter = 50000, 
+   #                n.chains = 1, 
+    #               n.thin = 1,
+     #              n.burnin = 5000)
+
+
+jags_model_PTY<- read_rds("PTY/jags_model_PTY.RDS")
+```
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+plot(jags_model_PTY)
+
+jags_sims_PTY <- jags_model_PTY$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+
+```
+
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_preds_PTY <- jags_sims_PTY %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_train_PTY$share_A,
+        month = base_train_PTY$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+
+
+
+
+datatable(base_mod_preds_PTY)
+
+
+```
+
+
+### Análisis del Modelo
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+coeficientes_PTY <- jags_sims_PTY %>% 
+  dplyr::select(contains('be')) %>%
+  gather(parametro, sim) %>%
+  group_by(parametro) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.1),
+            mediana = median(sim),
+            q_9 = quantile(sim, probs = 0.9),
+            media = mean(sim),
+            probs = 100*prob(sim),
+            varianza = var(sim)) %>% 
+  ungroup %>% 
+  mutate(aux_param = str_extract(parametro, '(\\d)+'),
+         aux_param_2 = str_extract(parametro, '^([[:alpha:]]*)')) %>% 
+  mutate(parametro = paste(aux_param_2, aux_param, sep = '_')) %>% 
+  dplyr::select(-aux_param_2, -aux_param) %>% 
+  left_join(coef_variables_PTY)  
+
+
+
+
+datatable(coeficientes_PTY)
+```
+Se observa de la tabla anterior que, se observa que las variables Ventas_Unidades_A, Ventas_Unidades_B y share_B son significativas. A diferencia del modelo lineal previamente ajustado, en donde se obtuvieron seis parámetros distintos de cero.
+
+
+### Coeficiente de Determinación y Error Estandar^2
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+cor(base_mod_preds_PTY$q_5, base_mod_preds_PTY$share_A)^2
+
+base_mod_preds_PTY %>%  
+  mutate(err = abs((q_5-share_A)/share_A)) %>% 
+  dplyr::select(err) %>% 
+  as.matrix %>% 
+  median
+
+
+```
+
+El coeficiente de determinación del modelo Bayesiano es de 0.9999955, ligeramente menor al lineal presentado anteriormente.
+
+Por otro lado, el error cuadrático del modelo es 1.252329e-09, menor al error del modelo lineal.
+### Análisis de Residuales
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+base_mod_res_PTY <- base_mod_preds_PTY %>%
+  mutate(res = share_A - media)
+
+nPTY<- base_mod_res_PTY %>%
+  ggplot(aes(media, res)) +
+  geom_point() +
+labs(title = 'Residuales', x = 'Ajustados', y = 'Residuales') +
+  theme_minimal()
+
+ggplotly(nPTY)
+```
+
+Del análisis de residuales se observa que éstos conservan una varianza constante. de igual forma, son independientes entre sí.
+
+
+```{r,echo=FALSE, include= F, message=FALSE, warning=F,fig.align = 'center'}
+# Gráfico de ajustados vs observados
+
+lPTY <- base_mod_preds_PTY %>% 
+  ggplot(aes(share_A, q_5)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1) +
+  coord_equal() +
+  labs(title = 'Observados vs ajustados', x = 'Observado', y = 'Ajustados') +
+  theme(legend.position = 'bottom') +
+  theme_minimal()
+
+
+ggplotly(lPTY)
+
+```
+
+
+
+### Predicción
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F}
+
+
+base_mod_PTY <- base_train_PTY %>% 
+  rbind(base_test_PTY %>% 
+          mutate(share_A = NA))
+
+
+jags_model2_PTY<- read_rds("PTY/jags_model2_PTY.RDS")
+
+jags_sims2_PTY <- jags_model2_PTY$BUGSoutput$sims.matrix %>% 
+  data.frame
+
+```
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+
+base_mod_preds_PTY <- jags_sims2_PTY %>% 
+  dplyr::select(contains('pred')) %>% 
+  gather(parametro, sim) %>%
+  mutate(mu_num = as.numeric(str_extract(parametro, '[0-9]+'))) %>%
+  group_by(mu_num) %>% 
+  summarise(q_1 = quantile(sim, probs = 0.05),
+            q_5 = median(sim),
+            q_9 = quantile(sim, probs = 0.95),
+            media = mean(sim)) %>% 
+  ungroup %>% 
+  cbind(share_A = base_mod_PTY$share_A,
+        month = base_mod_PTY$month) %>% 
+  dplyr::select(share_A, month, media, q_1:q_9) %>% 
+  mutate_if(is.numeric, exp)
+
+ajuste_pronos_PTY <- base_mod_preds_PTY %>% 
+  filter(is.na(share_A))%>% 
+  dplyr::select(-share_A) %>% 
+  cbind(base_test_PTY %>% dplyr::select(share_A) %>% exp)
+
+datatable(ajuste_pronos_PTY)
+
+```
+
+
+# Conclusiones{.tabset .tabset-fade .tabset-pills}
+
+## Rhoades(1985)
+Resumen lectura Rhoades (1985)
+
+Ante la premisa inicial “market share per se is a source of high profits” el autor introduce el análisis de los principales factores que repercuten en el market power de una empresa, específicamente, en la lectura se analizan Bancos. En el documento se discute sobre por qué se creía que basta con conocer el porcentaje de participación de mercado de una empresa, en una industria, para definir las consecuencias que se podrán generar en el mercado ante cambios en el precio de los productos o la calidad de estos. Se llega a la conclusión que es erróneo suponer que solo el factor market share define esto, sino que existen múltiples variables que pueden afectar las consecuencias en el mercado. Uno importante a destacar es market rank ya que otorga una diferenciación inherente en el producto. Como conclusión, el autor afirma que es muy relevante la participación de mercado de una empresa en una industria, sin embargo, reconoce y demuestra que, existen múltiples variables que definen el alcance, éxito y aceptación de una empresa en el mercado, y que es valioso entender el contexto de la industria para poder priorizar los factores que determinen mejores resultados. Por último, menciona la importancia y, sobre todo, las ventajas que goza la empresa líder en el mercado. 
+
+En el presente proyecto, se discute sobre los factores que puedan afectar la participación de mercado de la empresa A en la región de Centroamérica. La investigación de Rhoades, ayudó a querer indagar y profundizar en otros factores que pueden afectar el éxito de la empresa A en esta región. En este análisis se explora el impacto de los factores tanto individualmente, como de forma colectiva y conjunta para cada uno de los países seleccionados.
+
+
+## El Salvador
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_el$share_A))
+R_ajus = round(summary(modelo.el)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.9233127),
+           Error.Cuadrático= c(mse, 0.01015941*0.01015941),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("3/6", "1/6")
+           )
+)
+
+
+```
+Por lo tanto, el mejor modelo para predecir la Participación de Mercado en El Salvador es el Bayesiano, ya que tiene un menor error cuadrático, así como un mayor coeficiente de determinación. Sin embargo, varios parámetros aún no son signifiactivamente distintos de cero por lo que valdría la pena un reajuste de parámetros para mejorar las predicciones.
+
+
+## Costa Rica
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+predicciones <- predict(modelo.cr, newdata = test_cr[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_cr$share_A)
+
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_cr$share_A))
+R_ajus = round(summary(modelo.cr)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.7908095),
+           Error.Cuadrático= c(mse, 0.0205194*0.0205194),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("2/4", "4/4")
+           )
+)
+
+
+```
+
+De la tabla anterior, se concluye que el mejor modelo para predecir el la participación de Mercado de la empresa A en Costa Rica es el Bayesiano, ya que tiene un menor error cuadrático y un coeficiente de determinación más alto. Adicionalmente, todos los supuestos sobre el modelo se cumplen por lo que es buen modelo.
+
+
+## Honduras
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+predicciones <- predict(modelo.hd, newdata = test_hd[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_hd$share_A)
+
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_hd$share_A))
+R_ajus = round(summary(modelo.hd)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.7476754),
+           Error.Cuadrático= c(mse, 0.01972404*0.01972404),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("3/4", "3/4")
+           )
+)
+
+
+```
+
+De la tabla anterior, se concluye que el mejor modelo para predecir el la participación de Mercado de la empresa A en Honduras es el Bayesiano, ya que tiene un menor error cuadrático y un coeficiente de determinación más alto. Adicionalmente, el parámetro del Precio por Unidad de la empresa B no es significativamente distinto de cero, por lo que sepodría reajustar la selección de variables.
+
+## Guatemala
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+predicciones <- predict(modelo.gt, newdata = test_gt[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_gt$share_A)
+
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_gt$share_A))
+R_ajus = round(summary(modelo.hd)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.8877435),
+           Error.Cuadrático= c(mse, 0.0115612*0.0115612),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("3/4", "2/4")
+           )
+)
+
+
+```
+
+De la tabla anterior, se concluye que el mejor modelo para predecir el la participación de Mercado de la empresa A en Guatemala es el Bayesiano, ya que tiene un menor error cuadrático y un coeficiente de determinación más alto. Adicionalmente, dos de los parámetros no son significativamente distintos de cero, por lo que sepodría reajustar la selección de variables.
+
+## Centro América
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+predicciones <- predict(modelo.cam, newdata = test_cam[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_cam$share_A)
+
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_cam$share_A))
+R_ajus = round(summary(modelo.cam)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.7040613),
+           Error.Cuadrático= c(mse, 0.00785104*0.00785104),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("4/5", "4/5")
+           )
+)
+
+
+```
+
+De la tabla anterior, se concluye que el mejor modelo para predecir el la participación de Mercado de la empresa A en Centro América es el Bayesiano, ya que tiene un menor error cuadrático y el coeficiente de determinación no es muy diferente. Adicionalmente, el parámetro Ventas de Unidades de la empresa B no es significativamente distinto de cero, por lo que sepodría reajustar la selección de variables.
+
+## Nicaragua
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+predicciones <- predict(modelo.nic, newdata = test_nic[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_nic$share_A)
+
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_nic$share_A))
+R_ajus = round(summary(modelo.nic)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.9957878),
+           Error.Cuadrático= c(mse, 0.003159095*0.003159095),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("2/3", "2/3")
+           )
+)
+
+
+```
+
+De la tabla anterior, se concluye que el mejor modelo para predecir el la participación de Mercado de la empresa A en Nicaragua es el Bayesiano, ya que tiene un menor error cuadrático y el coeficiente de determinación no es muy diferente. Adicionalmente, el parámetro Ventas de Unidades de la empresa B no es significativamente distinto de cero, por lo que sepodría reajustar la selección de variables.
+
+## Panamá
+
+
+
+```{r,echo=FALSE, include= TRUE, message=FALSE, warning=F,fig.align = 'center'}
+predicciones <- predict(modelo.pty, newdata = test_pty[,-1], interval = "confidence")
+
+predicciones <- cbind(predicciones, Real= test_pty$share_A)
+
+
+mse <- MSE(y_pred = exp(predicciones[,1]), y_true = exp(test_pty$share_A))
+R_ajus = round(summary(modelo.pty)$r.squared,4)
+
+datatable(
+  data.frame(Modelo= c("Lineal", "Bayesiano"),
+           Coef.Determinación = c(R_ajus, 0.9999955),
+           Error.Cuadrático= c(mse, 0.0000353882*0.0000353882),
+           Análisis.Residuales = c("OK", "OK"),
+           Parámetros.Distintos.Cero = c("2/7", "3/7")
+           )
+)
+
+
+```
+
+De la tabla anterior, se concluye que el mejor modelo para predecir el la participación de Mercado de la empresa A en Panamá es el Lineal, ya que tiene un menor error cuadrático y el coeficiente de determinación no es muy diferente. Sin embargo, algunos parámetros no son significativamente distintos de cero, por lo que sepodría reajustar la selección de variables.
+
+
+
+
+
+
+
+
